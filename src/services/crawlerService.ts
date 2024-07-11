@@ -5,6 +5,7 @@ import Website from '../models/website';
 import { PromisePool } from '@supercharge/promise-pool';
 
 const BASE_URL = 'https://enamad.ir';
+const MAX_RETRIES = 5;
 
 // Function to validate Jalali date
 const validateJalaliDate = (jalaliDate: string): boolean => {
@@ -12,15 +13,16 @@ const validateJalaliDate = (jalaliDate: string): boolean => {
   return jalaali.isValidJalaaliDate(jy, jm, jd);
 };
 
-// Retry logic
-const fetchWithRetry = async (url: string, retries = 3, delay = 1000): Promise<any> => {
+// Retry logic with exponential backoff
+const fetchWithRetry = async (url: string, retries = MAX_RETRIES, delay = 1000): Promise<any> => {
   for (let i = 0; i < retries; i++) {
     try {
       return await axios.get(url);
     } catch (error) {
       if (i < retries - 1) {
-        console.warn(`Retry ${i + 1} for ${url}`);
-        await new Promise(res => setTimeout(res, delay));
+        const backoff = delay * Math.pow(2, i);
+        console.warn(`Retry ${i + 1} for ${url} after ${backoff}ms`);
+        await new Promise(res => setTimeout(res, backoff));
       } else {
         throw error;
       }
@@ -78,6 +80,9 @@ export const crawlEnamad = async (): Promise<void> => {
           console.log(`Fetching page: ${pageUrl}`);
           const pageData = await fetchPageData(pageUrl);
 
+          // Introduce a delay to avoid rate limiting
+          await new Promise(res => setTimeout(res, 500));
+
           // Prepare bulk operations for upsert per page
           const bulkOps = pageData.map(website => ({
             updateOne: {
@@ -110,6 +115,9 @@ export const crawlEnamad = async (): Promise<void> => {
         .process(async (pageUrl: string) => {
           console.log(`Retrying page: ${pageUrl}`);
           const pageData = await fetchPageData(pageUrl);
+
+          // Introduce a delay to avoid rate limiting
+          await new Promise(res => setTimeout(res, 500));
 
           // Prepare bulk operations for upsert per page
           const bulkOps = pageData.map(website => ({
